@@ -58,6 +58,7 @@ final class AppStartCheckPublicJavaTestClasses {
 
 		final Duration executionTime = Duration.between(start, Instant.now());
 		System.out.println("done; execution time: " + durationToString(executionTime));
+		System.out.println();
 	}
 
 	private static String createHelpMessage() {
