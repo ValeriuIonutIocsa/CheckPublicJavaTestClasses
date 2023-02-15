@@ -10,7 +10,7 @@ class AppStartCheckPublicJavaTestClassesTest {
 	void testMain() throws Exception {
 
 		final String folderPathString;
-		final int input = Integer.parseInt("1");
+		final int input = Integer.parseInt("11");
 		if (input == 1) {
 			folderPathString = Paths.get("").toAbsolutePath()
 					.getParent().getParent().getParent().getParent().toString();

@@ -9,8 +9,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -74,7 +78,7 @@ final class AppStartCheckPublicJavaTestClasses {
 
 		} else {
 			System.out.println("folder path:");
-			System.out.println(folderPathString);
+			System.out.println(folderPath);
 
 			final List<Path> javaFilePathList;
 			try (Stream<Path> filePathStream = Files.walk(folderPath)) {
@@ -83,14 +87,32 @@ final class AppStartCheckPublicJavaTestClasses {
 						.filter(filePath -> filePath.toString().endsWith(".java"))
 						.collect(Collectors.toList());
 			}
-			final List<Path> publicTestClassPathList = new ArrayList<>();
+
+			final List<Path> publicTestClassPathList = Collections.synchronizedList(new ArrayList<>());
+			final List<Runnable> runnableList = new ArrayList<>();
 			for (final Path javaFilePath : javaFilePathList) {
 
-				final boolean publicTestClass = checkPublicTestClass(javaFilePath);
-				if (publicTestClass) {
-					publicTestClassPathList.add(javaFilePath);
-				}
+				runnableList.add(() -> {
+
+					final boolean publicTestClass = checkPublicTestClass(javaFilePath);
+					if (publicTestClass) {
+						publicTestClassPathList.add(javaFilePath);
+					}
+				});
 			}
+
+			final ExecutorService executorService = Executors.newFixedThreadPool(6);
+			for (final Runnable runnable : runnableList) {
+				executorService.execute(runnable);
+			}
+			executorService.shutdown();
+			final boolean awaitTerminationSuccess = executorService.awaitTermination(1, TimeUnit.MINUTES);
+			if (!awaitTerminationSuccess) {
+
+				System.err.println("failed to terminate the executor service");
+				executorService.shutdownNow();
+			}
+
 			if (publicTestClassPathList.isEmpty()) {
 				System.out.println("found no public java test classes");
 
@@ -106,32 +128,40 @@ final class AppStartCheckPublicJavaTestClasses {
 	}
 
 	private static boolean checkPublicTestClass(
-			final Path javaFilePath) throws Exception {
+			final Path javaFilePath) {
 
-		final List<String> trimmedLineList = Files.readAllLines(javaFilePath).stream()
-				.map(String::trim).collect(Collectors.toList());
+		boolean publicTestClass = false;
+		try {
+			final List<String> trimmedLineList = Files.readAllLines(javaFilePath).stream()
+					.map(String::trim).collect(Collectors.toList());
 
-		boolean testClass = false;
-		for (final String trimmedLine : trimmedLineList) {
+			boolean testClass = false;
+			for (final String trimmedLine : trimmedLineList) {
 
-			if (trimmedLine.startsWith("@Test")) {
+				if (trimmedLine.startsWith("@Test")) {
 
-				testClass = true;
-				break;
+					testClass = true;
+					break;
+				}
 			}
-		}
 
-		boolean publicClass = false;
-		for (final String trimmedLine : trimmedLineList) {
+			boolean publicClass = false;
+			for (final String trimmedLine : trimmedLineList) {
 
-			if (trimmedLine.startsWith("public class")) {
+				if (trimmedLine.startsWith("public class")) {
 
-				publicClass = true;
-				break;
+					publicClass = true;
+					break;
+				}
 			}
-		}
 
-		return testClass && publicClass;
+			publicTestClass = testClass && publicClass;
+
+		} catch (final Exception exc) {
+			System.err.println("failed to check class:" + System.lineSeparator() + javaFilePath);
+			exc.printStackTrace();
+		}
+		return publicTestClass;
 	}
 
 	private static String durationToString(
